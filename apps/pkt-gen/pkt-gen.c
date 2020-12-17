@@ -808,84 +808,90 @@ update_ip(struct pkt *pkt, struct targ *t)
 	struct glob_arg *g = t->g;
 	struct ip ip;
 	struct udphdr udp;
-	uint32_t oaddr, naddr;
-	uint16_t oport, nport;
+	uint32_t soaddr, snaddr; /* Old and new source addresses */
+	uint16_t soport, snport;
+	uint32_t doaddr, dnaddr;
+	uint16_t doport, dnport; /* Old and new destination ports */
 	uint16_t ip_sum, udp_sum;
 
 	memcpy(&ip, &pkt->ipv4.ip, sizeof(ip));
 	memcpy(&udp, &pkt->ipv4.udp, sizeof(udp));
+
+	/* Warning: do {} while(false) is not a loop */
 	do {
 		ip_sum = udp_sum = 0;
-		naddr = oaddr = ntohl(ip.ip_src.s_addr);
-		nport = oport = ntohs(udp.uh_sport);
+		snaddr = soaddr = ntohl(ip.ip_src.s_addr);
+		snport = soport = ntohs(udp.uh_sport);
+		dnaddr = doaddr = ntohl(ip.ip_dst.s_addr);
+		dnport = doport = ntohs(udp.uh_dport);
+
+		/* Update source port and address */
 		if (g->options & OPT_RANDOM_SRC) {
 			ip.ip_src.s_addr = nrand48(t->seed);
 			udp.uh_sport = nrand48(t->seed);
-			naddr = ntohl(ip.ip_src.s_addr);
-			nport = ntohs(udp.uh_sport);
+			snaddr = ntohl(ip.ip_src.s_addr);
+			snport = ntohs(udp.uh_sport);
 			break;
 		}
-		if (oport < g->src_ip.port1) {
-			nport = oport + 1;
-			udp.uh_sport = htons(nport);
+		if (soport < g->src_ip.port1) {
+			snport = soport + 1;
+			udp.uh_sport = htons(snport);
 			break;
 		}
-		nport = g->src_ip.port0;
-		udp.uh_sport = htons(nport);
-		if (oaddr < g->src_ip.ipv4.end) {
-			naddr = oaddr + 1;
-			ip.ip_src.s_addr = htonl(naddr);
+		snport = g->src_ip.port0;
+		udp.uh_sport = htons(snport);
+		if (soaddr < g->src_ip.ipv4.end) {
+			snaddr = soaddr + 1;
+			ip.ip_src.s_addr = htonl(snaddr);
 			break;
 		}
-		naddr = g->src_ip.ipv4.start;
-		ip.ip_src.s_addr = htonl(naddr);
-	} while (0);
-	/* update checksums if needed */
-	if (oaddr != naddr) {
-		ip_sum = cksum_add(ip_sum, ~oaddr >> 16);
-		ip_sum = cksum_add(ip_sum, ~oaddr & 0xffff);
-		ip_sum = cksum_add(ip_sum, naddr >> 16);
-		ip_sum = cksum_add(ip_sum, naddr & 0xffff);
-	}
-	if (oport != nport) {
-		udp_sum = cksum_add(udp_sum, ~oport);
-		udp_sum = cksum_add(udp_sum, nport);
-	}
-	do {
-		naddr = oaddr = ntohl(ip.ip_dst.s_addr);
-		nport = oport = ntohs(udp.uh_dport);
+		snaddr = g->src_ip.ipv4.start;
+		ip.ip_src.s_addr = htonl(snaddr);
+
+		/* Update destination port and address */
 		if (g->options & OPT_RANDOM_DST) {
 			ip.ip_dst.s_addr = nrand48(t->seed);
 			udp.uh_dport = nrand48(t->seed);
-			naddr = ntohl(ip.ip_dst.s_addr);
-			nport = ntohs(udp.uh_dport);
+			dnaddr = ntohl(ip.ip_dst.s_addr);
+			dnport = ntohs(udp.uh_dport);
 			break;
 		}
-		if (oport < g->dst_ip.port1) {
-			nport = oport + 1;
-			udp.uh_dport = htons(nport);
+		if (doport < g->dst_ip.port1) {
+			dnport = doport + 1;
+			udp.uh_dport = htons(dnport);
 			break;
 		}
-		nport = g->dst_ip.port0;
-		udp.uh_dport = htons(nport);
-		if (oaddr < g->dst_ip.ipv4.end) {
-			naddr = oaddr + 1;
-			ip.ip_dst.s_addr = htonl(naddr);
+		dnport = g->dst_ip.port0;
+		udp.uh_dport = htons(dnport);
+		if (doaddr < g->dst_ip.ipv4.end) {
+			dnaddr = doaddr + 1;
+			ip.ip_dst.s_addr = htonl(dnaddr);
 			break;
 		}
-		naddr = g->dst_ip.ipv4.start;
-		ip.ip_dst.s_addr = htonl(naddr);
+		dnaddr = g->dst_ip.ipv4.start;
+		ip.ip_dst.s_addr = htonl(dnaddr);
 	} while (0);
-	/* update checksums */
-	if (oaddr != naddr) {
-		ip_sum = cksum_add(ip_sum, ~oaddr >> 16);
-		ip_sum = cksum_add(ip_sum, ~oaddr & 0xffff);
-		ip_sum = cksum_add(ip_sum, naddr >> 16);
-		ip_sum = cksum_add(ip_sum, naddr & 0xffff);
+
+	/* update checksums if needed */
+	if (soaddr != snaddr) {
+		ip_sum = cksum_add(ip_sum, ~soaddr >> 16);
+		ip_sum = cksum_add(ip_sum, ~soaddr & 0xffff);
+		ip_sum = cksum_add(ip_sum, snaddr >> 16);
+		ip_sum = cksum_add(ip_sum, snaddr & 0xffff);
 	}
-	if (oport != nport) {
-		udp_sum = cksum_add(udp_sum, ~oport);
-		udp_sum = cksum_add(udp_sum, nport);
+	if (soport != snport) {
+		udp_sum = cksum_add(udp_sum, ~soport);
+		udp_sum = cksum_add(udp_sum, snport);
+	}
+	if (doaddr != dnaddr) {
+		ip_sum = cksum_add(ip_sum, ~doaddr >> 16);
+		ip_sum = cksum_add(ip_sum, ~doaddr & 0xffff);
+		ip_sum = cksum_add(ip_sum, dnaddr >> 16);
+		ip_sum = cksum_add(ip_sum, dnaddr & 0xffff);
+	}
+	if (doport != dnport) {
+		udp_sum = cksum_add(udp_sum, ~doport);
+		udp_sum = cksum_add(udp_sum, dnport);
 	}
 	if (udp_sum != 0)
 		udp.uh_sum = ~cksum_add(~udp.uh_sum, htons(udp_sum));
@@ -906,79 +912,87 @@ update_ip6(struct pkt *pkt, struct targ *t)
 	struct glob_arg *g = t->g;
 	struct ip6_hdr ip6;
 	struct udphdr udp;
-	uint16_t udp_sum;
-	uint16_t oaddr, naddr;
-	uint16_t oport, nport;
-	uint8_t group;
+	uint16_t udp_sum, ip_sum;
+	uint16_t soaddr, snaddr;
+	uint16_t soport, snport;
+	uint16_t doaddr, dnaddr;
+	uint16_t doport, dnport;
+	uint8_t sgroup, dgroup;
 
 	memcpy(&ip6, &pkt->ipv6.ip, sizeof(ip6));
 	memcpy(&udp, &pkt->ipv6.udp, sizeof(udp));
+
+	/* Warning: do {} while(false) is not a loop */
 	do {
 		udp_sum = 0;
-		group = g->src_ip.ipv6.sgroup;
-		naddr = oaddr = ntohs(ip6.ip6_src.s6_addr16[group]);
-		nport = oport = ntohs(udp.uh_sport);
+		ip_sum = 0;
+		sgroup = g->src_ip.ipv6.sgroup;
+		snaddr = soaddr = ntohs(ip6.ip6_src.s6_addr16[sgroup]);
+		snport = soport = ntohs(udp.uh_sport);
+		dgroup = g->dst_ip.ipv6.sgroup;
+		dnaddr = doaddr = ntohs(ip6.ip6_dst.s6_addr16[dgroup]);
+		dnport = doport = ntohs(udp.uh_dport);
+
+		/* Update source port and address */
 		if (g->options & OPT_RANDOM_SRC) {
-			ip6.ip6_src.s6_addr16[group] = nrand48(t->seed);
+			ip6.ip6_src.s6_addr16[sgroup] = nrand48(t->seed);
 			udp.uh_sport = nrand48(t->seed);
-			naddr = ntohs(ip6.ip6_src.s6_addr16[group]);
-			nport = ntohs(udp.uh_sport);
+			snaddr = ntohs(ip6.ip6_src.s6_addr16[sgroup]);
+			snport = ntohs(udp.uh_sport);
 			break;
 		}
-		if (oport < g->src_ip.port1) {
-			nport = oport + 1;
-			udp.uh_sport = htons(nport);
+		if (soport < g->src_ip.port1) {
+			snport = soport + 1;
+			udp.uh_sport = htons(snport);
 			break;
 		}
-		nport = g->src_ip.port0;
-		udp.uh_sport = htons(nport);
-		if (oaddr < ntohs(g->src_ip.ipv6.end.s6_addr16[group])) {
-			naddr = oaddr + 1;
-			ip6.ip6_src.s6_addr16[group] = htons(naddr);
+		snport = g->src_ip.port0;
+		udp.uh_sport = htons(snport);
+		if (soaddr < ntohs(g->src_ip.ipv6.end.s6_addr16[sgroup])) {
+			snaddr = soaddr + 1;
+			ip6.ip6_src.s6_addr16[sgroup] = htons(snaddr);
 			break;
 		}
-		naddr = ntohs(g->src_ip.ipv6.start.s6_addr16[group]);
-		ip6.ip6_src.s6_addr16[group] = htons(naddr);
-	} while (0);
-	/* update checksums if needed */
-	if (oaddr != naddr)
-		udp_sum = cksum_add(~oaddr, naddr);
-	if (oport != nport)
-		udp_sum = cksum_add(udp_sum,
-		    cksum_add(~oport, nport));
-	do {
-		group = g->dst_ip.ipv6.egroup;
-		naddr = oaddr = ntohs(ip6.ip6_dst.s6_addr16[group]);
-		nport = oport = ntohs(udp.uh_dport);
+		snaddr = ntohs(g->src_ip.ipv6.start.s6_addr16[sgroup]);
+		ip6.ip6_src.s6_addr16[sgroup] = htons(snaddr);
+
+		/* Update destination port and address */
 		if (g->options & OPT_RANDOM_DST) {
-			ip6.ip6_dst.s6_addr16[group] = nrand48(t->seed);
+			ip6.ip6_dst.s6_addr16[dgroup] = nrand48(t->seed);
 			udp.uh_dport = nrand48(t->seed);
-			naddr = ntohs(ip6.ip6_dst.s6_addr16[group]);
-			nport = ntohs(udp.uh_dport);
+			dnaddr = ntohs(ip6.ip6_dst.s6_addr16[dgroup]);
+			dnport = ntohs(udp.uh_dport);
 			break;
 		}
-		if (oport < g->dst_ip.port1) {
-			nport = oport + 1;
-			udp.uh_dport = htons(nport);
+		if (doport < g->dst_ip.port1) {
+			dnport = doport + 1;
+			udp.uh_dport = htons(dnport);
 			break;
 		}
-		nport = g->dst_ip.port0;
-		udp.uh_dport = htons(nport);
-		if (oaddr < ntohs(g->dst_ip.ipv6.end.s6_addr16[group])) {
-			naddr = oaddr + 1;
-			ip6.ip6_dst.s6_addr16[group] = htons(naddr);
+		dnport = g->dst_ip.port0;
+		udp.uh_dport = htons(dnport);
+		if (doaddr < ntohs(g->dst_ip.ipv6.end.s6_addr16[dgroup])) {
+			dnaddr = doaddr + 1;
+			ip6.ip6_dst.s6_addr16[dgroup] = htons(dnaddr);
 			break;
 		}
-		naddr = ntohs(g->dst_ip.ipv6.start.s6_addr16[group]);
-		ip6.ip6_dst.s6_addr16[group] = htons(naddr);
+		dnaddr = ntohs(g->dst_ip.ipv6.start.s6_addr16[dgroup]);
+		ip6.ip6_dst.s6_addr16[dgroup] = htons(dnaddr);
 	} while (0);
-	/* update checksums */
-	if (oaddr != naddr)
+
+	/* update checksums if needed */
+	/* XXX Buggy code: incorrect checksum */
+	if (soaddr != snaddr)
+		udp_sum = cksum_add(~soaddr, snaddr);
+	if (soport != snport)
 		udp_sum = cksum_add(udp_sum,
-		    cksum_add(~oaddr, naddr));
-	if (oport != nport)
+		    cksum_add(~soport, snport));
+	if (doaddr != dnaddr)
 		udp_sum = cksum_add(udp_sum,
-		    cksum_add(~oport, nport));
+		    cksum_add(~doaddr, dnaddr));
+	if (doport != dnport)
+		udp_sum = cksum_add(udp_sum,
+		    cksum_add(~doport, dnport));
 	if (udp_sum != 0)
 		udp.uh_sum = ~cksum_add(~udp.uh_sum, udp_sum);
 	memcpy(&pkt->ipv6.ip, &ip6, sizeof(ip6));
